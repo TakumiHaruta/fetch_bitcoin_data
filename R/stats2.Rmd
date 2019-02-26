@@ -1,0 +1,1319 @@
+---
+title: "Bitcoin 時系列分析2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(RPostgreSQL)
+library(tseries)
+library(xts)
+library(zoo)
+library(knitr)
+library(kableExtra)
+library(vars)
+drv <- dbDriver("PostgreSQL")
+con <- dbConnect(drv,dbname="bitcoin",host="localhost",port=5432,user="takumi",password="takumi")
+options(digits=5)
+options(scipen=20)
+w_kable_styling <- function(x) { return(kable_styling(x, bootstrap_options = c("striped", "hover"))) }
+```
+
+```{r read_table}
+bc <- dbReadTable(con,"bitcoin_raw")
+bcd <- dbReadTable(con,"bitcoin_diff")[-1,]
+```
+
+## 基本統計量
+
+### 標本平均
+
+
+```{r Mean, echo=FALSE}
+bc_mean_1 <- apply(bc[bc$phase==1,2:15], 2, mean, na.rm=TRUE)
+bc_mean_2 <- apply(bc[bc$phase==2,2:15], 2, mean, na.rm=TRUE)
+bc_mean_3 <- apply(bc[bc$phase==3,2:15], 2, mean, na.rm=TRUE)
+bcd_mean_1 <- apply(bcd[bcd$phase==1,2:15], 2, mean, na.rm=TRUE)
+bcd_mean_2 <- apply(bcd[bcd$phase==2,2:15], 2, mean, na.rm=TRUE)
+bcd_mean_3 <- apply(bcd[bcd$phase==3,2:15], 2, mean, na.rm=TRUE)
+mean_table <- data.frame(BC_1=bc_mean_1, BC_2=bc_mean_2, BC_3=bc_mean_3, BCD_1=bcd_mean_1, BCD_2=bcd_mean_2, BCD_3=bcd_mean_3)
+write.table(mean_table, "mean_table.csv", sep=",")
+w_kable_styling(kable(mean_table, caption="Mean"))
+```
+
+
+### 標本分散
+
+
+```{r Variance, echo=FALSE}
+variance <- function(x) var(x)*(length(x)-1)/length(x)
+bc_variance_1 <- apply(na.omit(bc[bc$phase==1,2:15]), 2, variance)
+bc_variance_2 <- apply(na.omit(bc[bc$phase==2,2:15]), 2, variance)
+bc_variance_3 <- apply(na.omit(bc[bc$phase==3,2:15]), 2, variance)
+bcd_variance_1 <- apply(na.omit(bcd[bcd$phase==1,2:15]), 2, variance)
+bcd_variance_2 <- apply(na.omit(bcd[bcd$phase==2,2:15]), 2, variance)
+bcd_variance_3 <- apply(na.omit(bcd[bcd$phase==3,2:15]), 2, variance)
+variance_table <- data.frame(BC_1=bc_variance_1, BC_2=bc_variance_2, BC_3=bc_variance_3, BCD_1=bcd_variance_1, BCD_2=bcd_variance_2, BCD_3=bcd_variance_3)
+write.table(variance_table, "variance_table.csv", sep=",")
+w_kable_styling(kable(variance_table, caption="Variance"))
+```
+
+### 考察
+
+phaseによって平均・分散がかなり異なっているので、やはり分けて分析した方が良さそう  
+
+### exchはどういうデータ？
+
+```{r ntran and exch, echo=FALSE}
+plot(bc$date, bc$exch, ylim=c(0, 4000000), type="l", col=rgb(1,0,0), ann=F)
+par(new=T)
+plot(bc$date, bc$ntran, ylim=c(0, 4000000), type="l")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+```
+
+### ntrepはどういうデータ？
+```{r ntran and ntrep1, echo=FALSE}
+plot(bc$date, bc$ntran, ylim=c(0, 500000), type="l", ann=F)
+par(new=T)
+plot(bc$date, bc$ntrep, ylim=c(0, 500000), type="l", col=rgb(1,0,0,alpha=0.4))
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+```
+
+```{r ntran and ntrep2, echo=FALSE}
+plot(bcd$date, bcd$dntran, ylim=c(-150000, 150000), type="l", ann=F)
+par(new=T)
+plot(bcd$date, bcd$dntrep, ylim=c(-150000, 150000), type="l", col=rgb(1,0,0,alpha=0.4))
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+```
+
+### etravはどういうデータ？
+```{r ntran and etrav1, echo=FALSE}
+plot(bc$date, bc$ntran, ylim=c(0, 1000000), type="l", ann=F)
+par(new=T)
+plot(bc$date, bc$etrav, ylim=c(0, 1000000), type="l", col=rgb(1,0,0,alpha=0.6))
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+```
+
+```{r ntran and etrav2, echo=FALSE}
+plot(bcd$date, bcd$dntran, ylim=c(-300000, 300000), type="l", ann=F)
+par(new=T)
+plot(bcd$date, bcd$detrav, ylim=c(-300000, 300000), type="l", col=rgb(1,0,0,alpha=0.6))
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+```
+
+### toutvはどういうデータ？
+```{r etrav and toutv, echo=FALSE}
+plot(bc$date, bc$etrav, ylim=c(0, 4000000), type="l", ann=F)
+par(new=T)
+plot(bc$date, bc$toutv, ylim=c(0, 4000000), type="l", col=rgb(1,0,0,alpha=0.6))
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+```
+
+## モデル
+
+## 目的変数
+
+### 考察
+
+- 目的変数同士で回帰はNG
+- exch は説明変数に使った方が良さそう
+- -> ntran, ntrep, etrav, toutv を目的変数とする
+- どの変数が外生的に決められているか把握する必要がある
+- phaseの変化 → マイニングのモチベーションが減る or 少ない報酬を競争するため、モチベーションが上がる
+
+
+### Total Number of Transactions Per Day
+
+- The number of daily confirmed Bitcoin transactions
+- https://www.blockchain.com/charts/n-transactions
+- トランザクション数は上下を繰り返しながら、全体で見れば右肩上がり   
+- ntranのデータについて、変化率を用いると、取引量が増え、分母が大きくなるにつれて、変化率は乏しくなる
+- → 階差（または原系列）のデータを使いたい
+
+```{r Total Number of Transactions Per Day, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$ntran, type="l", main="Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dntran, type="l", main="DELTA Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$ntran, lag.max=30)
+acf(bc[bc$phase==2,]$ntran, lag.max=30)
+acf(bc[bc$phase==3,]$ntran, lag.max=30)
+acf(bcd[bcd$phase==1,]$dntran, lag.max=30)
+acf(bcd[bcd$phase==2,]$dntran, lag.max=30)
+acf(bcd[bcd$phase==3,]$dntran, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$ntran, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$ntran, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$ntran, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$ntran, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$ntran, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$ntran, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dntran, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dntran, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dntran, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dntran, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dntran, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dntran, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "ntran_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$ntran)[[1]], adf.test(bcd[bcd$phase==1,]$dntran)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$ntran)[[1]], adf.test(bcd[bcd$phase==2,]$dntran)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$ntran)[[1]], adf.test(bcd[bcd$phase==3,]$dntran)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$ntran)[[4]], adf.test(bcd[bcd$phase==1,]$dntran)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$ntran)[[4]], adf.test(bcd[bcd$phase==2,]$dntran)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$ntran)[[4]], adf.test(bcd[bcd$phase==3,]$dntran)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "ntran_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Number of Transactions Excluding Popular Addresses
+
+- ntranとあまり変わらない
+
+```{r Number of Transactions Excluding Popular Addresses, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$ntrep, type="l", main="Number of Transactions Excluding Popular Addresses")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dntrep, type="l", main="DELTA Number of Transactions Excluding Popular Addresses")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$ntrep, lag.max=30)
+acf(bc[bc$phase==2,]$ntrep, lag.max=30)
+acf(bc[bc$phase==3,]$ntrep, lag.max=30)
+acf(bcd[bcd$phase==1,]$dntrep, lag.max=30)
+acf(bcd[bcd$phase==2,]$dntrep, lag.max=30)
+acf(bcd[bcd$phase==3,]$dntrep, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$ntrep, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$ntrep, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$ntrep, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$ntrep, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$ntrep, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$ntrep, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dntrep, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dntrep, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dntrep, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dntrep, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dntrep, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dntrep, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "ntrep_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$ntrep)[[1]], adf.test(bcd[bcd$phase==1,]$dntrep)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$ntrep)[[1]], adf.test(bcd[bcd$phase==2,]$dntrep)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$ntrep)[[1]], adf.test(bcd[bcd$phase==3,]$dntrep)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$ntrep)[[4]], adf.test(bcd[bcd$phase==1,]$dntrep)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$ntrep)[[4]], adf.test(bcd[bcd$phase==2,]$dntrep)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$ntrep)[[4]], adf.test(bcd[bcd$phase==3,]$dntrep)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "ntrep_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Estimated Transaction Value
+
+- The total estimated value of transactions on the Bitcoin blockchain (does not include coins returned to sender as change).
+- https://www.blockchain.com/charts/estimated-transaction-volume
+
+```{r Estimated Transaction Value, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$etrav, type="l", main="Estimated Transaction Value")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$detrav, type="l", main="DELTA Estimated Transaction Value")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$etrav, lag.max=30)
+acf(bc[bc$phase==2,]$etrav, lag.max=30)
+acf(bc[bc$phase==3,]$etrav, lag.max=30)
+acf(bcd[bcd$phase==1,]$detrav, lag.max=30)
+acf(bcd[bcd$phase==2,]$detrav, lag.max=30)
+acf(bcd[bcd$phase==3,]$detrav, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$etrav, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$etrav, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$etrav, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$etrav, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$etrav, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$etrav, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$detrav, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$detrav, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$detrav, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$detrav, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$detrav, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$detrav, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "etrav_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$etrav)[[1]], adf.test(bcd[bcd$phase==1,]$detrav)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$etrav)[[1]], adf.test(bcd[bcd$phase==2,]$detrav)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$etrav)[[1]], adf.test(bcd[bcd$phase==3,]$detrav)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$etrav)[[4]], adf.test(bcd[bcd$phase==1,]$detrav)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$etrav)[[4]], adf.test(bcd[bcd$phase==2,]$detrav)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$etrav)[[4]], adf.test(bcd[bcd$phase==3,]$detrav)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "etrav_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Total Output Volume
+
+- The total value of all transaction outputs per day. This includes coins which were returned to the sender as change.  
+- https://www.blockchain.com/charts/output-volume
+- お釣りを含めている点が異なるが、タイプとしてはetravと同じ統計
+
+
+```{r Total Output Volume, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$toutv, type="l", main="Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dtoutv, type="l", main="DELTA Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$toutv, lag.max=30)
+acf(bc[bc$phase==2,]$toutv, lag.max=30)
+acf(bc[bc$phase==3,]$toutv, lag.max=30)
+acf(bcd[bcd$phase==1,]$dtoutv, lag.max=30)
+acf(bcd[bcd$phase==2,]$dtoutv, lag.max=30)
+acf(bcd[bcd$phase==3,]$dtoutv, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$toutv, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$toutv, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$toutv, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$toutv, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$toutv, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$toutv, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dtoutv, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dtoutv, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dtoutv, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dtoutv, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dtoutv, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dtoutv, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "toutv_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$toutv)[[1]], adf.test(bcd[bcd$phase==1,]$dtoutv)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$toutv)[[1]], adf.test(bcd[bcd$phase==2,]$dtoutv)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$toutv)[[1]], adf.test(bcd[bcd$phase==3,]$dtoutv)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$toutv)[[4]], adf.test(bcd[bcd$phase==1,]$dtoutv)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$toutv)[[4]], adf.test(bcd[bcd$phase==2,]$dtoutv)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$toutv)[[4]], adf.test(bcd[bcd$phase==3,]$dtoutv)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "toutv_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+## 説明変数
+
+### Daily Exchange Transaction Volume
+
+- ntranとかなり違っている。変化が激しい
+
+```{r Daily Exchange Transaction Volume, echo=FALSE, warning=FALSE}
+bc_om_1 <- na.omit(bc[bc$phase==1,]$exch)
+bc_om_2 <- na.omit(bc[bc$phase==2,]$exch)
+bc_om_3 <- na.omit(bc[bc$phase==3,]$exch)
+bcd_om_1 <- na.omit(bcd[bcd$phase==1,]$dexch)
+bcd_om_2 <- na.omit(bcd[bcd$phase==2,]$dexch)
+bcd_om_3 <- na.omit(bcd[bcd$phase==3,]$dexch)
+
+plot(bc$date, bc$exch, type="l", main="Daily Exchange Transaction Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dexch, type="l", main="DELTA Daily Exchange Transaction Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc_om_1, lag.max=30)
+acf(bc_om_2, lag.max=30)
+acf(bc_om_3, lag.max=30)
+acf(bcd_om_1, lag.max=30)
+acf(bcd_om_2, lag.max=30)
+acf(bcd_om_3, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "exch_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc_om_1)[[1]], adf.test(bcd_om_1)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc_om_2)[[1]], adf.test(bcd_om_2)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc_om_3)[[1]], adf.test(bcd_om_3)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc_om_1)[[4]], adf.test(bcd_om_1)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc_om_2)[[4]], adf.test(bcd_om_2)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc_om_3)[[4]], adf.test(bcd_om_3)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "exch_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### New bitcoin
+
+- Bitcoins in circulation  
+- The total number of bitcoins that have already been mined; in other words, the current supply of bitcoins on the network.  
+- https://www.blockchain.com/charts/total-bitcoins?timespan=all  
+
+```{r New Bitcoin, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$newbc, type="l", main="New bitcoin")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dnewbc, type="l", main="DELTA New bitcoin")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$newbc, lag.max=30)
+acf(bc[bc$phase==2,]$newbc, lag.max=30)
+acf(bc[bc$phase==3,]$newbc, lag.max=30)
+acf(bcd[bcd$phase==1,]$dnewbc, lag.max=30)
+acf(bcd[bcd$phase==2,]$dnewbc, lag.max=30)
+acf(bcd[bcd$phase==3,]$dnewbc, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$newbc, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$newbc, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$newbc, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$newbc, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$newbc, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$newbc, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dnewbc, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dnewbc, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dnewbc, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dnewbc, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dnewbc, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dnewbc, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "newbc_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$newbc)[[1]], adf.test(bcd[bcd$phase==1,]$dnewbc)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$newbc)[[1]], adf.test(bcd[bcd$phase==2,]$dnewbc)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$newbc)[[1]], adf.test(bcd[bcd$phase==3,]$dnewbc)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$newbc)[[4]], adf.test(bcd[bcd$phase==1,]$dnewbc)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$newbc)[[4]], adf.test(bcd[bcd$phase==2,]$dnewbc)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$newbc)[[4]], adf.test(bcd[bcd$phase==3,]$dnewbc)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "newbc_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Market Price (USD)
+
+- Average USD market price across major bitcoin exchanges.
+- https://www.blockchain.com/charts/market-price
+- ntran より遅れて急激に上昇しているが、感覚で関係はありそう 
+- ROCの自己相関の検定で、p値が大きく棄却できない → 自己相関がなさそう 
+
+```{r Market Price (USD), echo=FALSE, warning=FALSE}
+plot(bc$date, bc$mkpru, type="l", main="Market Price (USD)")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dmkpru, type="l", main="DELTA Market Price (USD)")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$mkpru, lag.max=30)
+acf(bc[bc$phase==2,]$mkpru, lag.max=30)
+acf(bc[bc$phase==3,]$mkpru, lag.max=30)
+acf(bcd[bcd$phase==1,]$dmkpru, lag.max=30)
+acf(bcd[bcd$phase==2,]$dmkpru, lag.max=30)
+acf(bcd[bcd$phase==3,]$dmkpru, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$mkpru, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$mkpru, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$mkpru, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$mkpru, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$mkpru, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$mkpru, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dmkpru, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dmkpru, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dmkpru, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dmkpru, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dmkpru, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dmkpru, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "mkpru_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$mkpru)[[1]], adf.test(bcd[bcd$phase==1,]$dmkpru)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$mkpru)[[1]], adf.test(bcd[bcd$phase==2,]$dmkpru)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$mkpru)[[1]], adf.test(bcd[bcd$phase==3,]$dmkpru)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$mkpru)[[4]], adf.test(bcd[bcd$phase==1,]$dmkpru)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$mkpru)[[4]], adf.test(bcd[bcd$phase==2,]$dmkpru)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$mkpru)[[4]], adf.test(bcd[bcd$phase==3,]$dmkpru)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "mkpru_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Total Transaction Fees
+
+- The total value of all transaction fees paid to miners (not including the coinbase value of block rewards).  
+- https://www.blockchain.com/charts/transaction-fees
+- ntranとは関係していそう
+
+```{r Total Transaction Fees, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$trfee, type="l", main="Total Transaction Fees")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dtrfee, type="l", main="DELTA Total Transaction Fees")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$trfee, lag.max=30)
+acf(bc[bc$phase==2,]$trfee, lag.max=30)
+acf(bc[bc$phase==3,]$trfee, lag.max=30)
+acf(bcd[bcd$phase==1,]$dtrfee, lag.max=30)
+acf(bcd[bcd$phase==2,]$dtrfee, lag.max=30)
+acf(bcd[bcd$phase==3,]$dtrfee, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$trfee, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$trfee, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$trfee, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$trfee, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$trfee, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$trfee, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dtrfee, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dtrfee, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dtrfee, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dtrfee, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dtrfee, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dtrfee, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "trfee_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$trfee)[[1]], adf.test(bcd[bcd$phase==1,]$dtrfee)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$trfee)[[1]], adf.test(bcd[bcd$phase==2,]$dtrfee)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$trfee)[[1]], adf.test(bcd[bcd$phase==3,]$dtrfee)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$trfee)[[4]], adf.test(bcd[bcd$phase==1,]$dtrfee)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$trfee)[[4]], adf.test(bcd[bcd$phase==2,]$dtrfee)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$trfee)[[4]], adf.test(bcd[bcd$phase==3,]$dtrfee)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "trfee_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Miners Revenue
+
+- Total value of coinbase block rewards and transaction fees paid to miners.  
+- https://www.blockchain.com/charts/miners-revenue  
+
+```{r Miners Revenue, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$mirev, type="l", main="Miners Revenue")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dmirev, type="l", main="DELTA Miners Revenue")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$mirev, lag.max=30)
+acf(bc[bc$phase==2,]$mirev, lag.max=30)
+acf(bc[bc$phase==3,]$mirev, lag.max=30)
+acf(bcd[bcd$phase==1,]$dmirev, lag.max=30)
+acf(bcd[bcd$phase==2,]$dmirev, lag.max=30)
+acf(bcd[bcd$phase==3,]$dmirev, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$mirev, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$mirev, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$mirev, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$mirev, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$mirev, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$mirev, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dmirev, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dmirev, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dmirev, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dmirev, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dmirev, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dmirev, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "mirev_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$mirev)[[1]], adf.test(bcd[bcd$phase==1,]$dmirev)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$mirev)[[1]], adf.test(bcd[bcd$phase==2,]$dmirev)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$mirev)[[1]], adf.test(bcd[bcd$phase==3,]$dmirev)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$mirev)[[4]], adf.test(bcd[bcd$phase==1,]$dmirev)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$mirev)[[4]], adf.test(bcd[bcd$phase==2,]$dmirev)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$mirev)[[4]], adf.test(bcd[bcd$phase==3,]$dmirev)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "mirev_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Difficulty
+
+- A relative measure of how difficult it is to find a new block. The difficulty is adjusted periodically as a function of how much hashing power has been deployed by the network of miners.
+- https://www.blockchain.com/charts/difficulty
+- カクカクしている
+
+```{r Difficulty, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$diff, type="l", main="Difficulty")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$ddiff, type="l", main="DELTA Difficulty")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$diff, lag.max=30)
+acf(bc[bc$phase==2,]$diff, lag.max=30)
+acf(bc[bc$phase==3,]$diff, lag.max=30)
+acf(bcd[bcd$phase==1,]$ddiff, lag.max=30)
+acf(bcd[bcd$phase==2,]$ddiff, lag.max=30)
+acf(bcd[bcd$phase==3,]$ddiff, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$diff, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$diff, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$diff, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$diff, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$diff, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$diff, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$ddiff, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$ddiff, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$ddiff, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$ddiff, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$ddiff, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$ddiff, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "diff_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$diff)[[1]], adf.test(bcd[bcd$phase==1,]$ddiff)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$diff)[[1]], adf.test(bcd[bcd$phase==2,]$ddiff)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$diff)[[1]], adf.test(bcd[bcd$phase==3,]$ddiff)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$diff)[[4]], adf.test(bcd[bcd$phase==1,]$ddiff)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$diff)[[4]], adf.test(bcd[bcd$phase==2,]$ddiff)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$diff)[[4]], adf.test(bcd[bcd$phase==3,]$ddiff)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "diff_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Median Confirmation Time
+
+- The median time for a transaction to be accepted into a mined block and added to the public ledger (note: only includes transactions with miner fees).
+- https://www.blockchain.com/charts/median-confirmation-time
+
+```{r Median Confirmation Time, echo=FALSE, warning=FALSE}
+bc_om_1 <- na.omit(bc[bc$phase==1,]$atrct)
+bc_om_2 <- na.omit(bc[bc$phase==2,]$atrct)
+bc_om_3 <- na.omit(bc[bc$phase==3,]$atrct)
+bcd_om_1 <- na.omit(bcd[bcd$phase==1,]$datrct)
+bcd_om_2 <- na.omit(bcd[bcd$phase==2,]$datrct)
+bcd_om_3 <- na.omit(bcd[bcd$phase==3,]$datrct)
+
+plot(bc$date, bc$atrct, type="l", main="Median Confirmation Time")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$datrct, type="l", main="DELTA  Median Confirmation Time")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc_om_1, lag.max=30)
+acf(bc_om_2, lag.max=30)
+acf(bc_om_3, lag.max=30)
+acf(bcd_om_1, lag.max=30)
+acf(bcd_om_2, lag.max=30)
+acf(bcd_om_3, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "atrct_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc_om_1)[[1]], adf.test(bcd_om_1)[[1]])
+names(stats_1) <- c("RAW", "atrct")
+stats_2 <- c(adf.test(bc_om_2)[[1]], adf.test(bcd_om_2)[[1]])
+names(stats_2) <- c("RAW", "atrct")
+stats_3 <- c(adf.test(bc_om_3)[[1]], adf.test(bcd_om_3)[[1]])
+names(stats_3) <- c("RAW", "atrct")
+pv_1 <- c(adf.test(bc_om_1)[[4]], adf.test(bcd_om_1)[[4]])
+names(pv_1) <- c("RAW", "atrct")
+pv_2 <- c(adf.test(bc_om_2)[[4]], adf.test(bcd_om_2)[[4]])
+names(pv_2) <- c("RAW", "atrct")
+pv_3 <- c(adf.test(bc_om_3)[[4]], adf.test(bcd_om_3)[[4]])
+names(pv_3) <- c("RAW", "atrct")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "atrct_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Number Of Unique Addresses Used
+
+- The total number of unique addresses used on the Bitcoin blockchain.
+- https://www.blockchain.com/charts/n-unique-addresses?timespan=all
+
+```{r Number Of Unique Addresses Used, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$naddu, type="l", main="Number Of Unique Addresses Used")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dnaddu, type="l", main="DELTA Number Of Unique Addresses Used")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$naddu, lag.max=30)
+acf(bc[bc$phase==2,]$naddu, lag.max=30)
+acf(bc[bc$phase==3,]$naddu, lag.max=30)
+acf(bcd[bcd$phase==1,]$dnaddu, lag.max=30)
+acf(bcd[bcd$phase==2,]$dnaddu, lag.max=30)
+acf(bcd[bcd$phase==3,]$dnaddu, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$naddu, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$naddu, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$naddu, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$naddu, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$naddu, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$naddu, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$dnaddu, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$dnaddu, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$dnaddu, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$dnaddu, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$dnaddu, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$dnaddu, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "naddu_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$naddu)[[1]], adf.test(bcd[bcd$phase==1,]$dnaddu)[[1]])
+names(stats_1) <- c("RAW", "naddu")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$naddu)[[1]], adf.test(bcd[bcd$phase==2,]$dnaddu)[[1]])
+names(stats_2) <- c("RAW", "naddu")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$naddu)[[1]], adf.test(bcd[bcd$phase==3,]$dnaddu)[[1]])
+names(stats_3) <- c("RAW", "naddu")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$naddu)[[4]], adf.test(bcd[bcd$phase==1,]$dnaddu)[[4]])
+names(pv_1) <- c("RAW", "naddu")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$naddu)[[4]], adf.test(bcd[bcd$phase==2,]$dnaddu)[[4]])
+names(pv_2) <- c("RAW", "naddu")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$naddu)[[4]], adf.test(bcd[bcd$phase==3,]$dnaddu)[[4]])
+names(pv_3) <- c("RAW", "naddu")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "naddu_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Average Block Size
+
+- The average block size in MB.
+- https://www.blockchain.com/charts/avg-block-size?timespan=all  
+
+
+```{r Average Block Size, echo=FALSE, warning=FALSE}
+plot(bc$date, bc$avbls, type="l", main="Average Block Size")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$davbls, type="l", main="DELTA Average Block Size")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc[bc$phase==1,]$avbls, lag.max=30)
+acf(bc[bc$phase==2,]$avbls, lag.max=30)
+acf(bc[bc$phase==3,]$avbls, lag.max=30)
+acf(bcd[bcd$phase==1,]$davbls, lag.max=30)
+acf(bcd[bcd$phase==2,]$davbls, lag.max=30)
+acf(bcd[bcd$phase==3,]$davbls, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc[bc$phase==1,]$avbls, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc[bc$phase==2,]$avbls, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc[bc$phase==3,]$avbls, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc[bc$phase==1,]$avbls, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc[bc$phase==2,]$avbls, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc[bc$phase==3,]$avbls, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd[bcd$phase==1,]$davbls, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd[bcd$phase==2,]$davbls, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd[bcd$phase==3,]$davbls, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd[bcd$phase==1,]$davbls, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd[bcd$phase==2,]$davbls, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd[bcd$phase==3,]$davbls, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "avbls_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc[bc$phase==1,]$avbls)[[1]], adf.test(bcd[bcd$phase==1,]$davbls)[[1]])
+names(stats_1) <- c("RAW", "DIFF")
+stats_2 <- c(adf.test(bc[bc$phase==2,]$avbls)[[1]], adf.test(bcd[bcd$phase==2,]$davbls)[[1]])
+names(stats_2) <- c("RAW", "DIFF")
+stats_3 <- c(adf.test(bc[bc$phase==3,]$avbls)[[1]], adf.test(bcd[bcd$phase==3,]$davbls)[[1]])
+names(stats_3) <- c("RAW", "DIFF")
+pv_1 <- c(adf.test(bc[bc$phase==1,]$avbls)[[4]], adf.test(bcd[bcd$phase==1,]$davbls)[[4]])
+names(pv_1) <- c("RAW", "DIFF")
+pv_2 <- c(adf.test(bc[bc$phase==2,]$avbls)[[4]], adf.test(bcd[bcd$phase==2,]$davbls)[[4]])
+names(pv_2) <- c("RAW", "DIFF")
+pv_3 <- c(adf.test(bc[bc$phase==3,]$avbls)[[4]], adf.test(bcd[bcd$phase==3,]$davbls)[[4]])
+names(pv_3) <- c("RAW", "DIFF")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "avbls_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Days Destroyed
+
+- A non-cumulative version of Bitcoin Days Destroyed.
+- https://www.quandl.com/data/BCHAIN/BCDDE-Bitcoin-Days-Destroyed
+- 動いたコインの枚数とそのコインが動いてなかった日数を掛けた値
+
+```{r Days Destroyed, echo=FALSE, warning=FALSE}
+bc_om_1 <- na.omit(bc[bc$phase==1,]$bcdde)
+bc_om_2 <- na.omit(bc[bc$phase==2,]$bcdde)
+bc_om_3 <- na.omit(bc[bc$phase==3,]$bcdde)
+bcd_om_1 <- na.omit(bcd[bcd$phase==1,]$dbcdde)
+bcd_om_2 <- na.omit(bcd[bcd$phase==2,]$dbcdde)
+bcd_om_3 <- na.omit(bcd[bcd$phase==3,]$dbcdde)
+
+plot(bc$date, bc$bcdde, type="l", main="Days Destroyed")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dbcdde, type="l", main="DELTA Days Destroyed")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc_om_1, lag.max=30)
+acf(bc_om_2, lag.max=30)
+acf(bc_om_3, lag.max=30)
+acf(bcd_om_1, lag.max=30)
+acf(bcd_om_2, lag.max=30)
+acf(bcd_om_3, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "bcdde_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc_om_1)[[1]], adf.test(bcd_om_1)[[1]])
+names(stats_1) <- c("RAW", "atrct")
+stats_2 <- c(adf.test(bc_om_2)[[1]], adf.test(bcd_om_2)[[1]])
+names(stats_2) <- c("RAW", "atrct")
+stats_3 <- c(adf.test(bc_om_3)[[1]], adf.test(bcd_om_3)[[1]])
+names(stats_3) <- c("RAW", "atrct")
+pv_1 <- c(adf.test(bc_om_1)[[4]], adf.test(bcd_om_1)[[4]])
+names(pv_1) <- c("RAW", "atrct")
+pv_2 <- c(adf.test(bc_om_2)[[4]], adf.test(bcd_om_2)[[4]])
+names(pv_2) <- c("RAW", "atrct")
+pv_3 <- c(adf.test(bc_om_3)[[4]], adf.test(bcd_om_3)[[4]])
+names(pv_3) <- c("RAW", "atrct")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "bcdde_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Hash Rate
+
+- The estimated number of tera hashes per second (trillions of hashes per second) the Bitcoin network is performing.  
+- https://www.blockchain.com/charts/hash-rate  
+
+```{r Hash Rate, echo=FALSE, warning=FALSE}
+bc_om_1 <- na.omit(bc[bc$phase==1,]$hrate)
+bc_om_2 <- na.omit(bc[bc$phase==2,]$hrate)
+bc_om_3 <- na.omit(bc[bc$phase==3,]$hrate)
+bcd_om_1 <- na.omit(bcd[bcd$phase==1,]$dhrate)
+bcd_om_2 <- na.omit(bcd[bcd$phase==2,]$dhrate)
+bcd_om_3 <- na.omit(bcd[bcd$phase==3,]$dhrate)
+
+plot(bc$date, bc$hrate, type="l", main="Hash Rate")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dhrate, type="l", main="DELTA Hash Rate")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc_om_1, lag.max=30)
+acf(bc_om_2, lag.max=30)
+acf(bc_om_3, lag.max=30)
+acf(bcd_om_1, lag.max=30)
+acf(bcd_om_2, lag.max=30)
+acf(bcd_om_3, lag.max=30)
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bc_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bc_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bc_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bc_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bc_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bc_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_raw <- t(data.frame("RAW_Qm_1"=stats_1, "RAW_p-value_1"=pv_1, "RAW_Qm_2"=stats_2, "RAW_p-value_2"=pv_2,"RAW_Qm_3"=stats_3, "RAW_p-value_3"=pv_3))
+
+stats_1 <- c(); for (i in 1:10) stats_1 <- append(stats_1, Box.test(bcd_om_1, lag=i, type="Ljung-Box")[[1]])
+names(stats_1) <- 1:10
+stats_2 <- c(); for (i in 1:10) stats_2 <- append(stats_2, Box.test(bcd_om_2, lag=i, type="Ljung-Box")[[1]])
+names(stats_2) <- 1:10
+stats_3 <- c(); for (i in 1:10) stats_3 <- append(stats_3, Box.test(bcd_om_3, lag=i, type="Ljung-Box")[[1]])
+names(stats_3) <- 1:10
+pv_1 <- c(); for (i in 1:10) pv_1 <- append(pv_1, Box.test(bcd_om_1, lag=100, type="Ljung-Box")[[3]])
+names(pv_1) <- 1:10
+pv_2 <- c(); for (i in 1:10) pv_2 <- append(pv_2, Box.test(bcd_om_2, lag=100, type="Ljung-Box")[[3]])
+names(pv_2) <- 1:10
+pv_3 <- c(); for (i in 1:10) pv_3 <- append(pv_3, Box.test(bcd_om_3, lag=100, type="Ljung-Box")[[3]])
+names(pv_3) <- 1:10
+ljung_box_diff <- t(data.frame("DIFF_Qm_1"=stats_1, "DIFF_p-value_1"=pv_1, "DIFF_Qm_2"=stats_2, "DIFF_p-value_2"=pv_2, "DIFF_Qm_3"=stats_3, "DIFF_p-value_3"=pv_3))
+
+write.table(rbind(ljung_box_raw,ljung_box_diff), "hrate_ljung_box_test.csv", sep=",")
+w_kable_styling(kable(rbind(ljung_box_raw,ljung_box_diff), caption="Ljung-Box"))
+
+stats_1 <- c(adf.test(bc_om_1)[[1]], adf.test(bcd_om_1)[[1]])
+names(stats_1) <- c("RAW", "atrct")
+stats_2 <- c(adf.test(bc_om_2)[[1]], adf.test(bcd_om_2)[[1]])
+names(stats_2) <- c("RAW", "atrct")
+stats_3 <- c(adf.test(bc_om_3)[[1]], adf.test(bcd_om_3)[[1]])
+names(stats_3) <- c("RAW", "atrct")
+pv_1 <- c(adf.test(bc_om_1)[[4]], adf.test(bcd_om_1)[[4]])
+names(pv_1) <- c("RAW", "atrct")
+pv_2 <- c(adf.test(bc_om_2)[[4]], adf.test(bcd_om_2)[[4]])
+names(pv_2) <- c("RAW", "atrct")
+pv_3 <- c(adf.test(bc_om_3)[[4]], adf.test(bcd_om_3)[[4]])
+names(pv_3) <- c("RAW", "atrct")
+a_dicky_fuller <- t(data.frame("DF_1"=stats_1, "p-value_1"=pv_1, "DF_2"=stats_2, "p-value_2"=pv_2, "DF_3"=stats_3, "p-value_3"=pv_3))
+write.table(a_dicky_fuller, "hrate_adf_test.csv", sep=",")
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+## VARモデル構築
+
+### ICの選択
+
+```{r AIC SIC, echo=FALSE, warning=FALSE}
+ic_1 <- VARselect(ts(na.omit(bcd[bcd$phase==1,c(3,7:10,12:14,16,2)])), lag.max = 8)[1]
+ic_2 <- VARselect(ts(na.omit(bcd[bcd$phase==2,c(3,7:10,12:14,16,2)])), lag.max = 8)[1]
+ic_3 <- VARselect(ts(na.omit(bcd[bcd$phase==3,c(3,7:10,12:14,16,2)])), lag.max = 8)[1]
+ntran_ic <- data.frame(c(ntran_1=ic_1, ntran_2=ic_2, ntran_3=ic_3))
+ic_1 <- VARselect(ts(na.omit(bcd[bcd$phase==1,c(4,7:10,12:14,16,2)])), lag.max = 8)[1]
+ic_2 <- VARselect(ts(na.omit(bcd[bcd$phase==2,c(4,7:10,12:14,16,2)])), lag.max = 8)[1]
+ic_3 <- VARselect(ts(na.omit(bcd[bcd$phase==3,c(4,7:10,12:14,16,2)])), lag.max = 8)[1]
+ntrep_ic <- data.frame(c(ntrep_1=ic_1, ntrep_2=ic_2, ntrep_3=ic_3))
+ic_1 <- VARselect(ts(na.omit(bcd[bcd$phase==1,c(5,7:10,12:14,16,2)])), lag.max = 8)[1]
+ic_2 <- VARselect(ts(na.omit(bcd[bcd$phase==2,c(5,7:10,12:14,16,2)])), lag.max = 8)[1]
+ic_3 <- VARselect(ts(na.omit(bcd[bcd$phase==3,c(5,7:10,12:14,16,2)])), lag.max = 8)[1]
+etrav_ic <- data.frame(c(etrav_1=ic_1, etrav_2=ic_2, etrav_3=ic_3))
+ic_1 <- VARselect(ts(na.omit(bcd[bcd$phase==1,c(6,7:10,12:13,16,2)])), lag.max = 8)[1]
+ic_2 <- VARselect(ts(na.omit(bcd[bcd$phase==2,c(6,7:10,12:13,16,2)])), lag.max = 8)[1]
+ic_3 <- VARselect(ts(na.omit(bcd[bcd$phase==3,c(6,7:10,12:13,16,2)])), lag.max = 8)[1]
+toutv_ic <- data.frame(c(toutv_1=ic_1, toutv_2=ic_2, toutv_3=ic_3))
+ic <- rbind(t(ntran_ic), t(ntrep_ic), t(etrav_ic), t(toutv_ic))
+rownames(ic) <- c("ntran_1st","ntran_2nd","ntran_3rd","ntrep_1st","ntrep_2nd","ntrep_3rd","etrav_1st","etrav_2nd","etrav_3rd","toutv_1st","toutv_2nd","toutv_3rd")
+write.table(ic[,c(1,3)], "IC.csv", sep=",")
+ic[,c(1,3)]
+```
+
+### ntranのVARモデル
+```{r VAR - ntran, echo=FALSE, warning=FALSE}
+vm_1_aic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(3,7:10,12:14,16,2)])), p=8, type="const")
+vm_1_sic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(3,7:10,12:14,16,2)])), p=1, type="const")
+vm_2_aic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(3,7:10,12:14,16,2)])), p=7, type="const")
+vm_2_sic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(3,7:10,12:14,16,2)])), p=2, type="const")
+vm_3_aic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(3,7:10,12:14,16,2)])), p=8, type="const")
+vm_3_sic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(3,7:10,12:14,16,2)])), p=1, type="const")
+
+names <- c("VAR(8) - ntran - 1st AIC", "VAR(1) - ntran - 2nd AIC", "VAR(7) - ntran - 3rd AIC", "VAR(2) - ntran - 1st SIC", "VAR(8) - ntran - 2nd SIC", "VAR(1) - ntran - 3rd SIC")
+write("## ntranのVARモデル", file="ntran_sum.csv")
+sums <- list(summary(vm_1_aic)[[2]][[1]], summary(vm_2_aic)[[2]][1], summary(vm_3_aic)[[2]][1], summary(vm_1_sic)[[2]][1], summary(vm_2_sic)[[2]][1], summary(vm_3_sic)[[2]][1])
+for ( i in 1:6 ) {
+  sum_out <- capture.output(sums[[i]])
+  write("#####", append=T, file="ntran_sum.csv")
+  write(names[i], append=T, file="ntran_sum.csv")
+  write("Call:", append=T, file="ntran_sum.csv")
+  write(sum_out[[grep("^Call:", sum_out) + 1]], append=T, file="ntran_sum.csv")
+  write("Residuals:", append=T, file="ntran_sum.csv")
+  write.table(as.list(summary(sums[[i]]$residuals)), append=T, file="ntran_sum.csv", sep=",", row.names=F)
+  write("Coefficients:", append=T, file="ntran_sum.csv")
+  write.table(sums[[i]]$coefficients, append=T, file="ntran_sum.csv", sep=",")
+  write("---", append=T, file="ntran_sum.csv")
+  write(sum_out[[grep("^Signif. codes:", sum_out)]], append=T, file="ntran_sum.csv")
+  write("Multiple R-squared:", append=T, file="ntran_sum.csv")
+  write(sums[[i]]$r.squared, append=T, file="ntran_sum.csv")
+  write("Adjusted R-squared:", append=T, file="ntran_sum.csv")
+  write(sums[[i]]$adj.r.squared, append=T, file="ntran_sum.csv")
+  write(sum_out[[grep("^F-statistic:", sum_out)]], append=T, file="ntran_sum.csv")
+  write("#####", append=T, file="ntran_sum.csv")
+} 
+sums
+```
+
+### ntrepのVARモデル
+```{r VAR - ntrep, echo=FALSE, warning=FALSE}
+vm_1_aic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(4,7:10,12:14,16,2)])), p=8, type="const")
+vm_1_sic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(4,7:10,12:14,16,2)])), p=1, type="const")
+vm_2_aic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(4,7:10,12:14,16,2)])), p=7, type="const")
+vm_2_sic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(4,7:10,12:14,16,2)])), p=3, type="const")
+vm_3_aic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(4,7:10,12:14,16,2)])), p=8, type="const")
+vm_3_sic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(4,7:10,12:14,16,2)])), p=1, type="const")
+
+names <- c("VAR(8) - ntrep - 1st AIC", "VAR(1) - ntrep - 2nd AIC", "VAR(7) - ntrep - 3rd AIC", "VAR(3) - ntrep - 1st SIC", "VAR(8) - ntrep - 2nd SIC", "VAR(1) - ntrep - 3rd SIC")
+write("## ntrepのVARモデル", file="ntrep_sum.csv")
+sums <- list(summary(vm_1_aic)[[2]][[1]], summary(vm_2_aic)[[2]][1], summary(vm_3_aic)[[2]][1], summary(vm_1_sic)[[2]][1], summary(vm_2_sic)[[2]][1], summary(vm_3_sic)[[2]][1])
+for ( i in 1:6 ) {
+  sum_out <- capture.output(sums[[i]])
+  write("#####", append=T, file="ntrep_sum.csv")
+  write(names[i], append=T, file="ntrep_sum.csv")
+  write("Call:", append=T, file="ntrep_sum.csv")
+  write(sum_out[[grep("^Call:", sum_out) + 1]], append=T, file="ntrep_sum.csv")
+  write("Residuals:", append=T, file="ntrep_sum.csv")
+  write.table(as.list(summary(sums[[i]]$residuals)), append=T, file="ntrep_sum.csv", sep=",", row.names=F)
+  write("Coefficients:", append=T, file="ntrep_sum.csv")
+  write.table(sums[[i]]$coefficients, append=T, file="ntrep_sum.csv", sep=",")
+  write("---", append=T, file="ntrep_sum.csv")
+  write(sum_out[[grep("^Signif. codes:", sum_out)]], append=T, file="ntrep_sum.csv")
+  write("Multiple R-squared:", append=T, file="ntrep_sum.csv")
+  write(sums[[i]]$r.squared, append=T, file="ntrep_sum.csv")
+  write("Adjusted R-squared:", append=T, file="ntrep_sum.csv")
+  write(sums[[i]]$adj.r.squared, append=T, file="ntrep_sum.csv")
+  write(sum_out[[grep("^F-statistic:", sum_out)]], append=T, file="ntrep_sum.csv")
+  write("#####", append=T, file="ntrep_sum.csv")
+} 
+sums
+```
+
+### etravのVARモデル
+```{r VAR - etrav, echo=FALSE, warning=FALSE}
+vm_1_aic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(5,7:10,12:14,16,2)])), p=8, type="const")
+vm_1_sic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(5,7:10,12:14,16,2)])), p=1, type="const")
+vm_2_aic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(5,7:10,12:14,16,2)])), p=8, type="const")
+vm_2_sic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(5,7:10,12:14,16,2)])), p=2, type="const")
+vm_3_aic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(5,7:10,12:14,16,2)])), p=8, type="const")
+vm_3_sic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(5,7:10,12:14,16,2)])), p=1, type="const")
+
+names <- c("VAR(8) - etrav - 1st AIC", "VAR(1) - etrav - 2nd AIC", "VAR(8) - etrav - 3rd AIC", "VAR(2) - etrav - 1st SIC", "VAR(8) - etrav - 2nd SIC", "VAR(1) - etrav - 3rd SIC")
+write("## etravのVARモデル", file="etrav_sum.csv")
+sums <- list(summary(vm_1_aic)[[2]][[1]], summary(vm_2_aic)[[2]][1], summary(vm_3_aic)[[2]][1], summary(vm_1_sic)[[2]][1], summary(vm_2_sic)[[2]][1], summary(vm_3_sic)[[2]][1])
+for ( i in 1:6 ) {
+  sum_out <- capture.output(sums[[i]])
+  write("#####", append=T, file="etrav_sum.csv")
+  write(names[i], append=T, file="etrav_sum.csv")
+  write("Call:", append=T, file="etrav_sum.csv")
+  write(sum_out[[grep("^Call:", sum_out) + 1]], append=T, file="etrav_sum.csv")
+  write("Residuals:", append=T, file="etrav_sum.csv")
+  write.table(as.list(summary(sums[[i]]$residuals)), append=T, file="etrav_sum.csv", sep=",", row.names=F)
+  write("Coefficients:", append=T, file="etrav_sum.csv")
+  write.table(sums[[i]]$coefficients, append=T, file="etrav_sum.csv", sep=",")
+  write("---", append=T, file="etrav_sum.csv")
+  write(sum_out[[grep("^Signif. codes:", sum_out)]], append=T, file="etrav_sum.csv")
+  write("Multiple R-squared:", append=T, file="etrav_sum.csv")
+  write(sums[[i]]$r.squared, append=T, file="etrav_sum.csv")
+  write("Adjusted R-squared:", append=T, file="etrav_sum.csv")
+  write(sums[[i]]$adj.r.squared, append=T, file="etrav_sum.csv")
+  write(sum_out[[grep("^F-statistic:", sum_out)]], append=T, file="etrav_sum.csv")
+  write("#####", append=T, file="etrav_sum.csv")
+} 
+sums
+```
+
+### toutvのVARモデル
+```{r VAR - toutv, echo=FALSE, warning=FALSE}
+vm_1_aic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(6,7:10,12:13,16,2)])), p=8, type="const")
+vm_1_sic <- VAR(ts(na.omit(bcd[bcd$phase==1,c(6,7:10,12:13,16,2)])), p=2, type="const")
+vm_2_aic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(6,7:10,12:13,16,2)])), p=7, type="const")
+vm_2_sic <- VAR(ts(na.omit(bcd[bcd$phase==2,c(6,7:10,12:13,16,2)])), p=3, type="const")
+vm_3_aic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(6,7:10,12:13,16,2)])), p=8, type="const")
+vm_3_sic <- VAR(ts(na.omit(bcd[bcd$phase==3,c(6,7:10,12:13,16,2)])), p=3, type="const")
+
+names <- c("VAR(8) - toutv - 1st AIC", "VAR(2) - toutv - 2nd AIC", "VAR(7) - toutv - 3rd AIC", "VAR(3) - toutv - 1st SIC", "VAR(8) - toutv - 2nd SIC", "VAR(3) - toutv - 3rd SIC")
+write("## toutvのVARモデル", file="toutv_sum.csv")
+sums <- list(summary(vm_1_aic)[[2]][[1]], summary(vm_2_aic)[[2]][1], summary(vm_3_aic)[[2]][1], summary(vm_1_sic)[[2]][1], summary(vm_2_sic)[[2]][1], summary(vm_3_sic)[[2]][1])
+for ( i in 1:6 ) {
+  sum_out <- capture.output(sums[[i]])
+  write("#####", append=T, file="toutv_sum.csv")
+  write(names[i], append=T, file="toutv_sum.csv")
+  write("Call:", append=T, file="toutv_sum.csv")
+  write(sum_out[[grep("^Call:", sum_out) + 1]], append=T, file="toutv_sum.csv")
+  write("Residuals:", append=T, file="toutv_sum.csv")
+  write.table(as.list(summary(sums[[i]]$residuals)), append=T, file="toutv_sum.csv", sep=",", row.names=F)
+  write("Coefficients:", append=T, file="toutv_sum.csv")
+  write.table(sums[[i]]$coefficients, append=T, file="toutv_sum.csv", sep=",")
+  write("---", append=T, file="toutv_sum.csv")
+  write(sum_out[[grep("^Signif. codes:", sum_out)]], append=T, file="toutv_sum.csv")
+  write("Multiple R-squared:", append=T, file="toutv_sum.csv")
+  write(sums[[i]]$r.squared, append=T, file="toutv_sum.csv")
+  write("Adjusted R-squared:", append=T, file="toutv_sum.csv")
+  write(sums[[i]]$adj.r.squared, append=T, file="toutv_sum.csv")
+  write(sum_out[[grep("^F-statistic:", sum_out)]], append=T, file="toutv_sum.csv")
+  write("#####", append=T, file="toutv_sum.csv")
+} 
+sums
+```

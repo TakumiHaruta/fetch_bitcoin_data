@@ -1,0 +1,652 @@
+---
+title: "Bitcoin 時系列分析"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(RPostgreSQL)
+library(tseries)
+library(xts)
+library(zoo)
+library(knitr)
+library(kableExtra)
+library(vars)
+drv <- dbDriver("PostgreSQL")
+con <- dbConnect(drv,dbname="bitcoin",host="localhost",port=5432,user="takumi",password="takumi")
+options(digits=5)
+options(scipen=20)
+w_adf.test <- function(x) { return(suppressWarnings(adf.test(x))) }
+w_kable_styling <- function(x) { return(kable_styling(x, bootstrap_options = c("striped", "hover"))) }
+```
+
+```{r read_table}
+bc <- dbReadTable(con,"bitcoin_raw")
+bcd <- dbReadTable(con,"bitcoin_diff")
+bcl <- dbReadTable(con,"bitcoin_log")
+bcdl <- dbReadTable(con,"bitcoin_log_diff")
+```
+
+## Bitcoin データ外観
+LOG -> 0のデータがあるため、+1して算出  
+
+```{r template, eval=FALSE, echo=FALSE, include=FALSE}
+plot(bc$date, bc$, type="l", main="")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$l, type="l", main="LOG")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$d, type="l", main="DELTA")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dl, type="l", main="ROC")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$, lag.max=30, type="covariance")
+acf(bcl$l, lag.max=30, type="covariance")
+acf(bcd[-1,]$d, lag.max=30, type="covariance")
+acf(bcdl[-1,]$dl, lag.max=30, type="covariance")
+```
+
+### Total Number of Transactions Per Day
+
+The number of daily confirmed Bitcoin transactions  
+https://www.blockchain.com/charts/n-transactions  
+ntrep とあまり変わらない  
+
+exch と関係あるはず
+
+```{r Total Number of Transactions Per Day, echo=FALSE}
+plot(bc$date, bc$ntran, type="l", main="Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lntran, type="l", main="LOG Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dntran, type="l", main="DELTA Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlntran, type="l", main="ROC Total Number of Transactions Per Day")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$ntran, lag.max=30)
+acf(bcl$lntran, lag.max=30)
+acf(bcd[-1,]$dntran, lag.max=30)
+acf(bcdl[-1,]$dlntran, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl[-1,]$dlntran, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl[-1,]$dlntran, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$ntran)[[1]], w_adf.test(bcl$lntran)[[1]], w_adf.test(bcd[-1,]$dntran)[[1]], w_adf.test(bcdl[-1,]$dlntran)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$ntran)[[4]], w_adf.test(bcl$lntran)[[4]], w_adf.test(bcd[-1,]$dntran)[[4]], w_adf.test(bcdl[-1,]$dlntran)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+### Daily Exchange Transaction Volume
+
+ntranとかなり違っている。変化が激しい  
+
+```{r Daily Exchange Transaction Volume, echo=FALSE}
+plot(bc$date, bc$exch, type="l", main="Daily Exchange Transaction Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lexch, type="l", main="LOG Daily Exchange Transaction Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dexch, type="l", main="DELTA Daily Exchange Transaction Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlexch, type="l", main="ROC Daily Exchange Transaction Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(na.omit(bc)$exch, lag.max=30)
+acf(na.omit(bcl)$lexch, lag.max=30)
+acf(na.omit(bcd)$dexch, lag.max=30)
+acf(na.omit(bcdl)$dlexch, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlexch, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlexch, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(na.omit(bc)$exch)[[1]], w_adf.test(na.omit(bcl)$lexch)[[1]], w_adf.test(na.omit(bcd)$dexch)[[1]], w_adf.test(na.omit(bcdl)$dlexch)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(na.omit(bc)$exch)[[4]], w_adf.test(na.omit(bcl)$lexch)[[4]], w_adf.test(na.omit(bcd)$dexch)[[4]], w_adf.test(na.omit(bcdl)$dlexch)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Estimated Transaction Value
+
+The total estimated value of transactions on the Bitcoin blockchain (does not include coins returned to sender as change).  
+https://www.blockchain.com/charts/estimated-transaction-volume  
+
+exbt と関係あるはず  
+toutv とどちらを使うかだが、純粋な取引量を説明したいならばこっち  
+
+```{r Estimated Transaction Value, echo=FALSE}
+plot(bc$date, bc$etrav, type="l", main="Estimated Transaction Value")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$letrav, type="l", main="LOG Estimated Transaction Value")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$detrav, type="l", main="DELTA Estimated Transaction Value")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dletrav, type="l", main="ROC Estimated Transaction Value")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$etrav, lag.max=30)
+acf(bcl$letrav, lag.max=30)
+acf(bcd[-1,]$detrav, lag.max=30)
+acf(bcdl[-1,]$dletrav, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dletrav, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dletrav, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$etrav)[[1]], w_adf.test(bcl$letrav)[[1]], w_adf.test(bcd[-1,]$detrav)[[1]], w_adf.test(bcdl[-1,]$dletrav)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$etrav)[[4]], w_adf.test(bcl$letrav)[[4]], w_adf.test(bcd[-1,]$detrav)[[4]], w_adf.test(bcdl[-1,]$dletrav)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Total Output Volume
+
+The total value of all transaction outputs per day. This includes coins which were returned to the sender as change.  
+https://www.blockchain.com/charts/output-volume  
+
+お釣りを含めている点が異なるが、タイプとしてはetravと同じ統計  
+phaseの変化 → マイニングのモチベーションが減る 
+
+```{r Total Output Volume, echo=FALSE}
+plot(bc$date, bc$toutv, type="l", main="Total Output Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$ltoutv, type="l", main="LOG Total Output Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dtoutv, type="l", main="DELTA Total Output Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dltoutv, type="l", main="ROC Total Output Volume")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$toutv, lag.max=30)
+acf(bcl$ltoutv, lag.max=30)
+acf(bcd[-1,]$dtoutv, lag.max=30)
+acf(bcdl[-1,]$dltoutv, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dltoutv, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dltoutv, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$toutv)[[1]], w_adf.test(bcl$ltoutv)[[1]], w_adf.test(bcd[-1,]$dtoutv)[[1]], w_adf.test(bcdl[-1,]$dltoutv)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$toutv)[[4]], w_adf.test(bcl$ltoutv)[[4]], w_adf.test(bcd[-1,]$dtoutv)[[4]], w_adf.test(bcdl[-1,]$dltoutv)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+ 
+
+### New bitcoin
+
+Bitcoins in circulation  
+The total number of bitcoins that have already been mined; in other words, the current supply of bitcoins on the network.  
+https://www.blockchain.com/charts/total-bitcoins?timespan=all  
+
+当然のことながら、phaseの影響をかなり受けている 
+
+```{r New Bitcoin, echo=FALSE}
+plot(bc$date, bc$newbc, type="l", main="New Bitcoin")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lnewbc, type="l", main="LOG New Bitcoin")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dnewbc, type="l", main="DELTA New Bitcoin")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlnewbc, type="l", main="ROC New Bitcoin")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$newbc, lag.max=30)
+acf(bcl$lnewbc, lag.max=30)
+acf(bcd[-1,]$dnewbc, lag.max=30)
+acf(bcdl[-1,]$dlnewbc, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlnewbc, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlnewbc, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$newbc)[[1]], w_adf.test(bcl$lnewbc)[[1]], w_adf.test(bcd[-1,]$dnewbc)[[1]], w_adf.test(bcdl[-1,]$dlnewbc)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$newbc)[[4]], w_adf.test(bcl$lnewbc)[[4]], w_adf.test(bcd[-1,]$dnewbc)[[4]], w_adf.test(bcdl[-1,]$dlnewbc)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+ 
+
+### Market Price (USD)
+
+Average USD market price across major bitcoin exchanges.  
+https://www.blockchain.com/charts/market-price  
+
+ntran より遅れて急激に上昇しているが、感覚で関係はありそう 
+
+```{r Market Price (USD), echo=FALSE}
+plot(bc$date, bc$mkpru, type="l", main="Market Price (USD)")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lmkpru, type="l", main="LOG Market Price (USD)")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dmkpru, type="l", main="DELTA Market Price (USD)")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlmkpru, type="l", main="ROC Market Price (USD)")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$mkpru, lag.max=30)
+acf(bcl$lmkpru, lag.max=30)
+acf(bcd[-1,]$dmkpru, lag.max=30)
+acf(bcdl[-1,]$dlmkpru, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlmkpru, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlmkpru, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$mkpru)[[1]], w_adf.test(bcl$lmkpru)[[1]], w_adf.test(bcd[-1,]$dmkpru)[[1]], w_adf.test(bcdl[-1,]$dlmkpru)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$mkpru)[[4]], w_adf.test(bcl$lmkpru)[[4]], w_adf.test(bcd[-1,]$dmkpru)[[4]], w_adf.test(bcdl[-1,]$dlmkpru)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+ 
+
+### Total Transaction Fees
+
+The total value of all transaction fees paid to miners (not including the coinbase value of block rewards).  
+https://www.blockchain.com/charts/transaction-fees  
+
+ntranとは関係していそう  
+マイニングと関係しているので、phaseの影響は受けるはず 
+
+```{r Total Transaction Fees, echo=FALSE}
+plot(bc$date, bc$trfee, type="l", main="Total Transaction Fees")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$ltrfee , type="l", main="LOG Total Transaction Fees")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dtrfee, type="l", main="DELTA Total Transaction Fees")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dltrfee, type="l", main="ROC Total Transaction Fees")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$trfee, lag.max=30)
+acf(bcl$ltrfee, lag.max=30)
+acf(bcd[-1,]$dtrfee, lag.max=30)
+acf(bcdl[-1,]$dltrfee, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dltrfee, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dltrfee, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$trfee)[[1]], w_adf.test(bcl$ltrfee)[[1]], w_adf.test(bcd[-1,]$dtrfee)[[1]], w_adf.test(bcdl[-1,]$dltrfee)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$trfee)[[4]], w_adf.test(bcl$ltrfee)[[4]], w_adf.test(bcd[-1,]$dtrfee)[[4]], w_adf.test(bcdl[-1,]$dltrfee)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+ 
+
+### Miners Revenue
+
+Total value of coinbase block rewards and transaction fees paid to miners.  
+https://www.blockchain.com/charts/miners-revenue  
+
+ntranとは当然関係  
+マイニングと関係しているので、phaseの影響は受けるはず 
+
+```{r Miners Revenue, echo=FALSE}
+plot(bc$date, bc$mirev, type="l", main="Miners Revenue")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lmirev, type="l", main="LOG Miners Revenue")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dmirev, type="l", main="DELTA Miners Revenue")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlmirev, type="l", main="ROC Miners Revenue")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$mirev, lag.max=30)
+acf(bcl$lmirev, lag.max=30)
+acf(bcd[-1,]$dmirev, lag.max=30)
+acf(bcdl[-1,]$dlmirev, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlmirev, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlmirev, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$mirev)[[1]], w_adf.test(bcl$lmirev)[[1]], w_adf.test(bcd[-1,]$dmirev)[[1]], w_adf.test(bcdl[-1,]$dlmirev)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$mirev)[[4]], w_adf.test(bcl$lmirev)[[4]], w_adf.test(bcd[-1,]$dmirev)[[4]], w_adf.test(bcdl[-1,]$dlmirev)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+ 
+
+### Difficulty
+
+A relative measure of how difficult it is to find a new block. The difficulty is adjusted periodically as a function of how much hashing power has been deployed by the network of miners.  
+https://www.blockchain.com/charts/difficulty  
+
+マイニング活動には影響を与えているはず  
+使える変数かどうかは謎 
+
+```{r Difficulty, echo=FALSE}
+plot(bc$date, bc$diff, type="l", main="Difficulty")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$ldiff, type="l", main="LOG Difficulty")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$ddiff, type="l", main="DELTA Difficulty")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dldiff, type="l", main="ROC Difficulty")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$diff, lag.max=30)
+acf(bcl$ldiff, lag.max=30)
+acf(bcd[-1,]$ddiff, lag.max=30)
+acf(bcdl[-1,]$dldiff, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dldiff, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dldiff, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$diff)[[1]], w_adf.test(bcl$ldiff)[[1]], w_adf.test(bcd[-1,]$ddiff)[[1]], w_adf.test(bcdl[-1,]$dldiff)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$diff)[[4]], w_adf.test(bcl$ldiff)[[4]], w_adf.test(bcd[-1,]$ddiff)[[4]], w_adf.test(bcdl[-1,]$dldiff)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Median Confirmation Time
+
+The median time for a transaction to be accepted into a mined block and added to the public ledger (note: only includes transactions with miner fees).  
+https://www.blockchain.com/charts/median-confirmation-time  
+
+ntranには影響ありそうな変数  
+
+```{r Median Confirmation Time, echo=FALSE}
+plot(bc$date, bc$atrct, type="l", main="Median Confirmation Time")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$latrct, type="l", main="LOG Median Confirmation Time")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$datrct, type="l", main="DELTA Median Confirmation Time")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlatrct, type="l", main="ROC Median Confirmation Time")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(na.omit(bc)$atrct, lag.max=30)
+acf(na.omit(bcl)$latrct, lag.max=30)
+acf(na.omit(bcd)$datrct, lag.max=30)
+acf(na.omit(bcdl)$dlatrct, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlatrct, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlatrct, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(na.omit(bc)$atrct)[[1]], w_adf.test(na.omit(bcl)$latrct)[[1]], w_adf.test(na.omit(bcd)$datrct)[[1]], w_adf.test(na.omit(bcdl)$dlatrct)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(na.omit(bc)$atrct)[[4]], w_adf.test(na.omit(bcl)$latrct)[[4]], w_adf.test(na.omit(bcd)$datrct)[[4]], w_adf.test(na.omit(bcdl)$dlatrct)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Number Of Unique Addresses Used
+
+The total number of unique addresses used on the Bitcoin blockchain.  
+https://www.blockchain.com/charts/n-unique-addresses?timespan=all  
+ntran とあまり動きが変わらない 
+
+```{r Number Of Unique Addresses Used, echo=FALSE}
+plot(bc$date, bc$naddu, type="l", main="Number Of Unique Addresses Used")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lnaddu, type="l", main="LOG Number Of Unique Addresses Used")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dnaddu, type="l", main="DELTA Number Of Unique Addresses Used")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlnaddu, type="l", main="ROC Number Of Unique Addresses Used")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$naddu, lag.max=30)
+acf(bcl$lnaddu, lag.max=30)
+acf(bcd[-1,]$dnaddu, lag.max=30)
+acf(bcdl[-1,]$dlnaddu, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlnaddu, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlnaddu, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$naddu)[[1]], w_adf.test(bcl$lnaddu)[[1]], w_adf.test(bcd[-1,]$dnaddu)[[1]], w_adf.test(bcdl[-1,]$dlnaddu)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$naddu)[[4]], w_adf.test(bcl$lnaddu)[[4]], w_adf.test(bcd[-1,]$dnaddu)[[4]], w_adf.test(bcdl[-1,]$dlnaddu)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+ 
+
+### Average Block Size
+
+The average block size in MB.  
+https://www.blockchain.com/charts/avg-block-size?timespan=all  
+
+「取引量の密度」という解釈でいいか？  
+使える変数かどうかは謎  
+
+```{r Average Block Size, echo=FALSE}
+plot(bc$date, bc$avbls, type="l", main="Average Block Size")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lavbls, type="l", main="LOG Average Block Size")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$davbls, type="l", main="DELTA Average Block Size")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlavbls, type="l", main="ROC Average Block Size")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(bc$avbls, lag.max=30)
+acf(bcl$lavbls, lag.max=30)
+acf(bcd[-1,]$davbls, lag.max=30)
+acf(bcdl[-1,]$dlavbls, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlavbls, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlavbls, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(bc$avbls)[[1]], w_adf.test(bcl$lavbls)[[1]], w_adf.test(bcd[-1,]$davbls)[[1]], w_adf.test(bcdl[-1,]$dlavbls)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(bc$avbls)[[4]], w_adf.test(bcl$lavbls)[[4]], w_adf.test(bcd[-1,]$davbls)[[4]], w_adf.test(bcdl[-1,]$dlavbls)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Days Destroyed
+
+A non-cumulative version of Bitcoin Days Destroyed.  
+https://www.quandl.com/data/BCHAIN/BCDDE-Bitcoin-Days-Destroyed  
+
+動いたコインの枚数とそのコインが動いてなかった日数を掛けた値
+使えなさそう？  
+
+```{r Days Destroyed, echo=FALSE}
+plot(bc$date, bc$bcdde, type="l", main="Days Destroyed")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lbcdde, type="l", main="LOG Days Destroyed")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dbcdde, type="l", main="DELTA Days Destroyed")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlbcdde, type="l", main="ROC Days Destroyed")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(na.omit(bc)$bcdde, lag.max=30)
+acf(na.omit(bcl)$lbcdde, lag.max=30)
+acf(na.omit(bcd)$dbcdde, lag.max=30)
+acf(na.omit(bcdl)$dlbcdde, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlbcdde, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlbcdde, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(na.omit(bc)$bcdde)[[1]], w_adf.test(na.omit(bcl)$lbcdde)[[1]], w_adf.test(na.omit(bcd)$dbcdde)[[1]], w_adf.test(na.omit(bcdl)$dlbcdde)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(na.omit(bc)$bcdde)[[4]], w_adf.test(na.omit(bcl)$lbcdde)[[4]], w_adf.test(na.omit(bcd)$dbcdde)[[4]], w_adf.test(na.omit(bcdl)$dlbcdde)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+
+
+### Hash Rate
+
+The estimated number of tera hashes per second (trillions of hashes per second) the Bitcoin network is performing.  
+https://www.blockchain.com/charts/hash-rate  
+
+diff とほぼ同じ
+
+```{r Hash Rate, echo=FALSE}
+plot(bc$date, bc$hrate, type="l", main="Hash Rate")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcl$date, bcl$lhrate, type="l", main="LOG Hash Rate")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcd$date, bcd$dhrate, type="l", main="DELTA Hash Rate")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+plot(bcdl$date, bcdl$dlhrate, type="l", main="ROC Hash Rate")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+
+acf(na.omit(bc)$hrate, lag.max=30)
+acf(na.omit(bcl)$lhrate, lag.max=30)
+acf(na.omit(bcd)$dhrate, lag.max=30)
+acf(na.omit(bcdl)$dlhrate, lag.max=30)
+
+stats <- c(); for (i in 1:10) stats <- append(stats, Box.test(bcdl$dlhrate, lag=i, type="Ljung-Box")[[1]])
+names(stats) <- 1:10
+pv <- c(); for (i in 1:10) pv <- append(pv, Box.test(bcdl$dlhrate, lag=100, type="Ljung-Box")[[3]])
+names(pv) <- 1:10
+ljung_box <- t(data.frame("Qm"=stats, "p-value"=pv))
+w_kable_styling(kable(ljung_box, caption="Ljung-Box"))
+
+stats <- c(w_adf.test(na.omit(bc)$hrate)[[1]], w_adf.test(na.omit(bcl)$lhrate)[[1]], w_adf.test(na.omit(bcd)$dhrate)[[1]], w_adf.test(na.omit(bcdl)$dlhrate)[[1]])
+names(stats) <- c("RAW", "LOG", "DIFF", "ROC")
+pv <- c(w_adf.test(na.omit(bc)$hrate)[[4]], w_adf.test(na.omit(bcl)$lhrate)[[4]], w_adf.test(na.omit(bcd)$dhrate)[[4]], w_adf.test(na.omit(bcdl)$dlhrate)[[4]])
+names(pv) <- c("RAW", "LOG", "DIFF", "ROC")
+a_dicky_fuller <- t(data.frame("DF"=stats, "p-value"=pv))
+w_kable_styling(kable(a_dicky_fuller, caption="ADF-test"))
+```
+  
+
+### EXCHはどういうデータ？
+
+```{r ntran and exch, echo=FALSE}
+plot(bc$date, bc$exch, ylim=c(0, 4000000), type="l", col=rgb(1,0,0), ann=F)
+par(new=T)
+plot(bc$date, bc$ntran, ylim=c(0, 4000000), type="l")
+abline(v=c(as.Date("2012-11-28"), as.Date("2016-07-09")), col="red")
+```
+
+ntranよりも変動が激しい。  
+ntranを上回ってしまっているのは、取引者がbitcoinの1日のBitcoinの移動をまとめて行うためだと予想。  
+
+## 基本統計量
+
+### 標本平均
+
+平均はそのまま読んでもあまり使えないかも
+
+```{r Mean, echo=FALSE}
+bc_mean <- apply(bc[,2:15], 2, mean, na.rm=TRUE)
+bcd_mean <- apply(bcd[,2:15], 2, mean, na.rm=TRUE)
+bcl_mean <- apply(bcl[,2:15], 2, mean, na.rm=TRUE)
+bcdl_mean <- apply(bcdl[,2:15], 2, mean, na.rm=TRUE)
+mean_table <- data.frame(BC=bc_mean, BCD=bcd_mean, BCL=bcl_mean, BCDL=bcdl_mean)
+w_kable_styling(kable(mean_table, caption="Mean"))
+```
+
+
+### 標本分散
+
+全体的にばらつきが激しい
+
+```{r Variance, echo=FALSE}
+variance <- function(x) var(x)*(length(x)-1)/length(x)
+bc_variance <- apply(na.omit(bc)[,2:15], 2, variance)
+bcd_variance <- apply(na.omit(bcd)[,2:15], 2, variance)
+bcl_variance <- apply(na.omit(bcl)[,2:15], 2, variance)
+bcdl_variance <- apply(na.omit(bcdl)[,2:15], 2, variance)
+variance_table <- data.frame(BC=bc_variance, BCD=bcd_variance, BCL=bcl_variance, BCDL=bcdl_variance)
+w_kable_styling(kable(variance_table, caption="Variance"))
+```
+
+### 考察
+
+ROCはどの変数も定常過程っぽい。  
+原系列はデータによっては単位根過程だったり、定常過程だったりする。  
+
+
+## VAR
+
+有意な変数が少ない  
+グレンジャー因果も意味をなしているのか不明
+-> 変数を減らしてやるべきか？
+-> Ciaian, Rajcaniova and Kancs (2016) と変数を揃えるべきか？
+
+```{r VAR, echo=FALSE}
+VARselect(ts(na.omit(bcdl[,2:15])), lag.max = 10)
+var_model_aic <- VAR(ts(na.omit(bcdl[,2:15])), p=6, type="const")
+var_model_sic <- VAR(ts(na.omit(bcdl[,2:15])), p=1, type="const")
+summary(var_model_aic)
+summary(var_model_sic)
+causality(var_model_aic, cause = "dlexch")
+causality(var_model_aic, cause = "dlntran")
+causality(var_model_aic, cause = "dletrav")
+causality(var_model_sic, cause = "dlexch")
+causality(var_model_sic, cause = "dlntran")
+causality(var_model_sic, cause = "dletrav")
+```

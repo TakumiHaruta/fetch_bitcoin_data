@@ -1,0 +1,493 @@
+---
+title: "Bitcoin 統計データサマリー Major"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(RPostgreSQL)
+library(knitr)
+library(kableExtra)
+library(vars)
+library(urca)
+library(psych)
+library(PerformanceAnalytics)
+drv <- dbDriver("PostgreSQL")
+con <- dbConnect(drv,dbname="bitcoin",host="localhost",port=5432,user="takumi",password="takumi")
+options(digits=5)
+options(scipen=20)
+w_adf.test <- function(x) { return(suppressWarnings(adf.test(x))) }
+w_kable_styling <- function(x) { return(kable_styling(x, bootstrap_options = c("striped", "hover"))) }
+st <- function(x) {
+  stats <- c()
+  for (i in 1:10) {
+    stats <- append(stats, Box.test(x, lag=i, type="Ljung-Box")[[1]])
+  }
+  names(stats) <- 1:10
+  return (stats)
+}
+pv <- function(x) {
+  stats <- c()
+  for (i in 1:10) {
+    stats <- append(stats, Box.test(x, lag=i, type="Ljung-Box")[[3]])
+  }
+  names(stats) <- 1:10
+  return (stats)
+}
+```
+
+```{r read_table, warning=FALSE}
+bc  <- dbReadTable(con,"bitcoin_raw")[-1,c(1,10,2,16,18,11,21,23)]
+bcl <- dbReadTable(con,"bitcoin_log")[-1,c(1,10,2,16,18,11,21,23)]
+bcd <- dbReadTable(con,"bitcoin_diff")[c(-1,-2),c(1,10,2,16,18,11,21,23)]
+bcdl <- dbReadTable(con,"bitcoin_log_diff")[c(-1,-2),c(1,10,2,16,18,11,21,23)]
+```
+
+# 基本統計量
+```{r stats, warning=FALSE}
+bc_p2_mean <- apply(bc[bc$phase==2,2:7], 2, mean)
+bc_p2_median <- apply(bc[bc$phase==2,2:7], 2, median)
+bc_p2_max <- apply(bc[bc$phase==2,2:7], 2, max)
+bc_p2_min <- apply(bc[bc$phase==2,2:7], 2, min)
+bc_p2_sd <- apply(bc[bc$phase==2,2:7], 2, sd)
+bc_p2_skew <- apply(bc[bc$phase==2,2:7], 2, skewness)
+bc_p2_kurt <- apply(bc[bc$phase==2,2:7], 2, kurtosis)
+bc_p3_mean <- apply(bc[bc$phase==3,2:7], 2, mean)
+bc_p3_median <- apply(bc[bc$phase==3,2:7], 2, median)
+bc_p3_max <- apply(bc[bc$phase==3,2:7], 2, max)
+bc_p3_min <- apply(bc[bc$phase==3,2:7], 2, min)
+bc_p3_sd <- apply(bc[bc$phase==3,2:7], 2, sd)
+bc_p3_skew <- apply(bc[bc$phase==3,2:7], 2, skewness)
+bc_p3_kurt <- apply(bc[bc$phase==3,2:7], 2, kurtosis)
+
+bc_stats <- t(data.frame(
+  bc_p2_mean=bc_p2_mean,
+  bc_p2_median=bc_p2_median,
+  bc_p2_max=bc_p2_max,
+  bc_p2_min=bc_p2_min,
+  bc_p2_sd=bc_p2_sd,
+  bc_p2_skew=bc_p2_skew,
+  bc_p2_kurt=bc_p2_kurt,
+  bc_p3_mean=bc_p3_mean,
+  bc_p3_median=bc_p3_median,
+  bc_p3_max=bc_p3_max,
+  bc_p3_min=bc_p3_min,
+  bc_p3_sd=bc_p3_sd,
+  bc_p3_skew=bc_p3_skew,
+  bc_p3_kurt=bc_p3_kurt
+  ))
+write.table(bc_stats, "stats.csv", sep=",")
+w_kable_styling(kable(bc_stats, caption="bc_stats"))
+```
+
+# 基本統計量 ROC
+```{r stats ROC,warning=FALSE}
+bcdl_p2_mean <- apply(bcdl[bcdl$phase==2,2:7], 2, mean)
+bcdl_p2_median <- apply(bcdl[bcdl$phase==2,2:7], 2, median)
+bcdl_p2_max <- apply(bcdl[bcdl$phase==2,2:7], 2, max)
+bcdl_p2_min <- apply(bcdl[bcdl$phase==2,2:7], 2, min)
+bcdl_p2_sd <- apply(bcdl[bcdl$phase==2,2:7], 2, sd)
+bcdl_p2_skew <- apply(bcdl[bcdl$phase==2,2:7], 2, skewness)
+bcdl_p2_kurt <- apply(bcdl[bcdl$phase==2,2:7], 2, kurtosis)
+bcdl_p3_mean <- apply(bcdl[bcdl$phase==3,2:7], 2, mean)
+bcdl_p3_median <- apply(bcdl[bcdl$phase==3,2:7], 2, median)
+bcdl_p3_max <- apply(bcdl[bcdl$phase==3,2:7], 2, max)
+bcdl_p3_min <- apply(bcdl[bcdl$phase==3,2:7], 2, min)
+bcdl_p3_sd <- apply(bcdl[bcdl$phase==3,2:7], 2, sd)
+bcdl_p3_skew <- apply(bcdl[bcdl$phase==3,2:7], 2, skewness)
+bcdl_p3_kurt <- apply(bcdl[bcdl$phase==3,2:7], 2, kurtosis)
+
+bcdl_stats <- t(data.frame(
+  bcdl_p2_mean=bcdl_p2_mean,
+  bcdl_p2_median=bcdl_p2_median,
+  bcdl_p2_max=bcdl_p2_max,
+  bcdl_p2_min=bcdl_p2_min,
+  bcdl_p2_sd=bcdl_p2_sd,
+  bcdl_p2_skew=bcdl_p2_skew,
+  bcdl_p2_kurt=bcdl_p2_kurt,
+  bcdl_p3_mean=bcdl_p3_mean,
+  bcdl_p3_median=bcdl_p3_median,
+  bcdl_p3_max=bcdl_p3_max,
+  bcdl_p3_min=bcdl_p3_min,
+  bcdl_p3_sd=bcdl_p3_sd,
+  bcdl_p3_skew=bcdl_p3_skew,
+  bcdl_p3_kurt=bcdl_p3_kurt
+  ))
+write.table(bcdl_stats, "stats_roc.csv", sep=",")
+w_kable_styling(kable(bcdl_stats, caption="bcdl_stats_roc"))
+
+psych::pairs.panels(bc[bc$phase==1,2:7], method="spearman")
+psych::pairs.panels(bc[bc$phase==2,2:7], method="spearman")
+psych::pairs.panels(bc[bc$phase==3,2:7], method="spearman")
+psych::pairs.panels(bcdl[bcdl$phase==1,2:7], method="spearman")
+psych::pairs.panels(bcdl[bcdl$phase==2,2:7], method="spearman")
+psych::pairs.panels(bcdl[bcdl$phase==3,2:7], method="spearman")
+```
+
+# コレログラム・自己相関
+```{r autocorr, warning=FALSE}
+acf(bc[bc$phase==2,]$mkpru, lag.max=20)
+acf(bc[bc$phase==3,]$mkpru, lag.max=20)
+acf(bc[bc$phase==2,]$ntran, lag.max=20)
+acf(bc[bc$phase==3,]$ntran, lag.max=20)
+acf(bc[bc$phase==2,]$naddu, lag.max=20)
+acf(bc[bc$phase==3,]$naddu, lag.max=20)
+acf(bc[bc$phase==2,]$atrct, lag.max=20)
+acf(bc[bc$phase==3,]$atrct, lag.max=20)
+acf(bc[bc$phase==2,]$trfee, lag.max=20)
+acf(bc[bc$phase==3,]$trfee, lag.max=20)
+acf(bc[bc$phase==2,]$hrate, lag.max=20)
+acf(bc[bc$phase==3,]$hrate, lag.max=20)
+
+st_mkpru <- st(bc[bc$phase==2,]$mkpru)
+st_ntran <- st(bc[bc$phase==2,]$ntran)
+st_naddu <- st(bc[bc$phase==2,]$naddu)
+st_atrct <- st(bc[bc$phase==2,]$atrct)
+st_trfee <- st(bc[bc$phase==2,]$trfee)
+st_hrate <- st(bc[bc$phase==2,]$hrate)
+
+pv_mkpru <- pv(bc[bc$phase==2,]$mkpru)
+pv_ntran <- pv(bc[bc$phase==2,]$ntran)
+pv_naddu <- pv(bc[bc$phase==2,]$naddu)
+pv_atrct <- pv(bc[bc$phase==2,]$atrct)
+pv_trfee <- pv(bc[bc$phase==2,]$trfee)
+pv_hrate <- pv(bc[bc$phase==2,]$hrate)
+
+ljung_box <- t(data.frame(
+  "Qm mkpru"=st_mkpru, 
+  "pvalue mkpru"=pv_mkpru,
+  "Qm ntran"=st_ntran, 
+  "pvalue ntran"=pv_ntran,
+  "Qm naddu"=st_naddu, 
+  "pvalue naddu"=pv_naddu,
+  "Qm atrct"=st_atrct, 
+  "pvalue atrct"=pv_atrct,
+  "Qm trfee"=st_trfee, 
+  "pvalue trfee"=pv_trfee,
+  "Qm hrate"=st_hrate, 
+  "pvalue hrate"=pv_hrate
+  ))
+write.table(ljung_box, "ljung_box_phase2.csv", sep=",")
+w_kable_styling(kable(ljung_box, caption="Ljung-Box Raw Phase 2"))
+
+st_mkpru <- st(bc[bc$phase==3,]$mkpru)
+st_ntran <- st(bc[bc$phase==3,]$ntran)
+st_naddu <- st(bc[bc$phase==3,]$naddu)
+st_atrct <- st(bc[bc$phase==3,]$atrct)
+st_trfee <- st(bc[bc$phase==3,]$trfee)
+st_hrate <- st(bc[bc$phase==3,]$hrate)
+
+pv_mkpru <- pv(bc[bc$phase==3,]$mkpru)
+pv_ntran <- pv(bc[bc$phase==3,]$ntran)
+pv_naddu <- pv(bc[bc$phase==3,]$naddu)
+pv_atrct <- pv(bc[bc$phase==3,]$atrct)
+pv_trfee <- pv(bc[bc$phase==3,]$trfee)
+pv_hrate <- pv(bc[bc$phase==3,]$hrate)
+
+ljung_box <- t(data.frame(
+  "Qm mkpru"=st_mkpru, 
+  "pvalue mkpru"=pv_mkpru,
+  "Qm ntran"=st_ntran, 
+  "pvalue ntran"=pv_ntran,
+  "Qm naddu"=st_naddu, 
+  "pvalue naddu"=pv_naddu,
+  "Qm atrct"=st_atrct, 
+  "pvalue atrct"=pv_atrct,
+  "Qm trfee"=st_trfee, 
+  "pvalue trfee"=pv_trfee,
+  "Qm hrate"=st_hrate, 
+  "pvalue hrate"=pv_hrate
+  ))
+write.table(ljung_box, "ljung_box_phase3.csv", sep=",")
+w_kable_styling(kable(ljung_box, caption="Ljung-Box Raw Phase 3"))
+```
+
+# コレログラム・自己相関 ROC
+```{r autocorr ROC, warning=FALSE}
+acf(bcdl[bcdl$phase==2,]$dlmkpru, lag.max=20)
+acf(bcdl[bcdl$phase==3,]$dlmkpru, lag.max=20)
+acf(bcdl[bcdl$phase==2,]$dlntran, lag.max=20)
+acf(bcdl[bcdl$phase==3,]$dlntran, lag.max=20)
+acf(bcdl[bcdl$phase==2,]$dlnaddu, lag.max=20)
+acf(bcdl[bcdl$phase==3,]$dlnaddu, lag.max=20)
+acf(bcdl[bcdl$phase==2,]$dlatrct, lag.max=20)
+acf(bcdl[bcdl$phase==3,]$dlatrct, lag.max=20)
+acf(bcdl[bcdl$phase==2,]$dltrfee, lag.max=20)
+acf(bcdl[bcdl$phase==3,]$dltrfee, lag.max=20)
+acf(bcdl[bcdl$phase==2,]$dlhrate, lag.max=20)
+acf(bcdl[bcdl$phase==3,]$dlhrate, lag.max=20)
+
+st_mkpru <- st(bcdl[bcdl$phase==2,]$dlmkpru)
+st_ntran <- st(bcdl[bcdl$phase==2,]$dlntran)
+st_naddu <- st(bcdl[bcdl$phase==2,]$dlnaddu)
+st_atrct <- st(bcdl[bcdl$phase==2,]$dlatrct)
+st_trfee <- st(bcdl[bcdl$phase==2,]$dltrfee)
+st_hrate <- st(bcdl[bcdl$phase==2,]$dlhrate)
+
+pv_mkpru <- pv(bcdl[bcdl$phase==2,]$dlmkpru)
+pv_ntran <- pv(bcdl[bcdl$phase==2,]$dlntran)
+pv_naddu <- pv(bcdl[bcdl$phase==2,]$dlnaddu)
+pv_atrct <- pv(bcdl[bcdl$phase==2,]$dlatrct)
+pv_trfee <- pv(bcdl[bcdl$phase==2,]$dltrfee)
+pv_hrate <- pv(bcdl[bcdl$phase==2,]$dlhrate)
+
+ljung_box <- t(data.frame(
+  "Qm mkpru"=st_mkpru, 
+  "pvalue mkpru"=pv_mkpru,
+  "Qm ntran"=st_ntran, 
+  "pvalue ntran"=pv_ntran,
+  "Qm naddu"=st_naddu, 
+  "pvalue naddu"=pv_naddu,
+  "Qm atrct"=st_atrct, 
+  "pvalue atrct"=pv_atrct,
+  "Qm trfee"=st_trfee, 
+  "pvalue trfee"=pv_trfee,
+  "Qm hrate"=st_hrate, 
+  "pvalue hrate"=pv_hrate
+  ))
+write.table(ljung_box, "ljung_box_phase2_roc.csv", sep=",")
+w_kable_styling(kable(ljung_box, caption="Ljung-Box ROC Phase 2"))
+
+st_mkpru <- st(bcdl[bcdl$phase==3,]$dlmkpru)
+st_ntran <- st(bcdl[bcdl$phase==3,]$dlntran)
+st_naddu <- st(bcdl[bcdl$phase==3,]$dlnaddu)
+st_atrct <- st(bcdl[bcdl$phase==3,]$dlatrct)
+st_trfee <- st(bcdl[bcdl$phase==3,]$dltrfee)
+st_hrate <- st(bcdl[bcdl$phase==3,]$dlhrate)
+
+pv_mkpru <- pv(bcdl[bcdl$phase==3,]$dlmkpru)
+pv_ntran <- pv(bcdl[bcdl$phase==3,]$dlntran)
+pv_naddu <- pv(bcdl[bcdl$phase==3,]$dlnaddu)
+pv_atrct <- pv(bcdl[bcdl$phase==3,]$dlatrct)
+pv_trfee <- pv(bcdl[bcdl$phase==3,]$dltrfee)
+pv_hrate <- pv(bcdl[bcdl$phase==3,]$dlhrate)
+
+ljung_box <- t(data.frame(
+  "Qm mkpru"=st_mkpru, 
+  "pvalue mkpru"=pv_mkpru,
+  "Qm ntran"=st_ntran, 
+  "pvalue ntran"=pv_ntran,
+  "Qm naddu"=st_naddu, 
+  "pvalue naddu"=pv_naddu,
+  "Qm atrct"=st_atrct, 
+  "pvalue atrct"=pv_atrct,
+  "Qm trfee"=st_trfee, 
+  "pvalue trfee"=pv_trfee,
+  "Qm hrate"=st_hrate, 
+  "pvalue hrate"=pv_hrate
+  ))
+write.table(ljung_box, "ljung_box_phase3_roc.csv", sep=",")
+w_kable_styling(kable(ljung_box, caption="Ljung-Box ROC Phase 3"))
+```
+
+# 単位根検定
+```{r unitroot, warning=FALSE}
+adf_aic <- ur.df(bc[bc$phase==2,]$mkpru, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==2,]$mkpru, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)
+adf_aic <- ur.df(bc[bc$phase==3,]$mkpru, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==3,]$mkpru, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)
+adf_mkpru <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),c(3,1)]
+colnames(adf_mkpru) <- c("95%", "mkpru_stat")
+
+adf_aic <- ur.df(bc[bc$phase==2,]$ntran, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==2,]$ntran, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bc[bc$phase==3,]$ntran, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==3,]$ntran, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_ntran <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bc[bc$phase==2,]$naddu, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==2,]$naddu, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bc[bc$phase==3,]$naddu, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==3,]$naddu, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_naddu <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bc[bc$phase==2,]$atrct, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==2,]$atrct, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bc[bc$phase==3,]$atrct, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==3,]$atrct, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_atrct <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bc[bc$phase==2,]$trfee, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==2,]$trfee, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bc[bc$phase==3,]$trfee, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==3,]$trfee, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_trfee <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bc[bc$phase==2,]$hrate, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==2,]$hrate, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bc[bc$phase==3,]$hrate, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bc[bc$phase==3,]$hrate, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_hrate <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_test <- cbind(adf_mkpru, adf_ntran, adf_naddu, adf_atrct, adf_trfee, adf_hrate)
+rownames(adf_test) <- c(
+  "p2_aic_tau3", "p2_bic_tau3", "p3_aic_tau3", "p3_bic_tau3",
+  "p2_aic_phi2", "p2_aic_phi3", "p2_bic_phi2", "p2_bic_phi3",
+  "p3_aic_phi2", "p3_aic_phi3", "p3_bic_phi2", "p3_bic_phi3"
+  )
+write.table(adf_test, "adf_test.csv", sep=",")
+w_kable_styling(kable(adf_test, caption="adf_test"))
+```
+
+# 単位根検定 ROC
+```{r unitroot ROC, warning=FALSE}
+adf_aic <- ur.df(bcdl[bcdl$phase==2,]$dlmkpru, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==2,]$dlmkpru, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)
+adf_aic <- ur.df(bcdl[bcdl$phase==3,]$dlmkpru, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==3,]$dlmkpru, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)
+adf_mkpru <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),c(3,1)]
+colnames(adf_mkpru) <- c("95%", "mkpru_stat")
+
+adf_aic <- ur.df(bcdl[bcdl$phase==2,]$dlntran, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==2,]$dlntran, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bcdl[bcdl$phase==3,]$dlntran, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==3,]$dlntran, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_ntran <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bcdl[bcdl$phase==2,]$dlnaddu, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==2,]$dlnaddu, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bcdl[bcdl$phase==3,]$dlnaddu, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==3,]$dlnaddu, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_naddu <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bcdl[bcdl$phase==2,]$dlatrct, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==2,]$dlatrct, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bcdl[bcdl$phase==3,]$dlatrct, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==3,]$dlatrct, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_atrct <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bcdl[bcdl$phase==2,]$dltrfee, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==2,]$dltrfee, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bcdl[bcdl$phase==3,]$dltrfee, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==3,]$dltrfee, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_trfee <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_aic <- ur.df(bcdl[bcdl$phase==2,]$dlhrate, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==2,]$dlhrate, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p2 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_aic <- ur.df(bcdl[bcdl$phase==3,]$dlhrate, type=c("trend"), lags=8, selectlags=c("AIC"))
+adf_bic <- ur.df(bcdl[bcdl$phase==3,]$dlhrate, type=c("trend"), lags=8, selectlags=c("BIC"))
+adf_aic <- cbind(t(summary(adf_aic)@teststat), summary(adf_aic)@cval)
+adf_bic <- cbind(t(summary(adf_bic)@teststat), summary(adf_bic)@cval)
+adf_p3 <- rbind(adf_aic, adf_bic)[,c(1,3)]
+adf_hrate <- rbind(adf_p2, adf_p3)[c(1,4,7,10,2,3,5,6,8,9,11,12),1]
+
+adf_test <- cbind(adf_mkpru, adf_ntran, adf_naddu, adf_atrct, adf_trfee, adf_hrate)
+rownames(adf_test) <- c(
+  "p2_aic_tau3", "p2_bic_tau3", "p3_aic_tau3", "p3_bic_tau3",
+  "p2_aic_phi2", "p2_aic_phi3", "p2_bic_phi2", "p2_bic_phi3",
+  "p3_aic_phi2", "p3_aic_phi3", "p3_bic_phi2", "p3_bic_phi3"
+  )
+write.table(adf_test, "adf_test_roc.csv", sep=",")
+w_kable_styling(kable(adf_test, caption="adf_test_roc"))
+```
+
+
+
+# 情報量基準
+```{r AIC SIC, warning=FALSE}
+ic_1 <- VARselect(bc[bc$phase==1,2:7], lag.max = 8)[1]
+ic_2 <- VARselect(bc[bc$phase==2,2:7], lag.max = 8)[1]
+ic_3 <- VARselect(bc[bc$phase==3,2:7], lag.max = 8)[1]
+ic <- data.frame(c(Phase_1=ic_1, Phase_2=ic_2, Phase_3=ic_3))
+write.table(ic, "IC.csv", sep=",")
+w_kable_styling(kable(ic, caption="IC"))
+
+ic_1 <- VARselect(bcdl[bcdl$phase==1,2:7], lag.max = 8)[1]
+ic_2 <- VARselect(bcdl[bcdl$phase==2,2:7], lag.max = 8)[1]
+ic_3 <- VARselect(bcdl[bcdl$phase==3,2:7], lag.max = 8)[1]
+ic <- data.frame(c(Phase_1=ic_1, Phase_2=ic_2, Phase_3=ic_3))
+write.table(ic, "IC_roc.csv", sep=",")
+w_kable_styling(kable(ic, caption="IC ROC"))
+```
+
+# VAR インパルス応答関数 ROC
+```{r IRF ROC, warning=FALSE}
+var_p2 <- VAR(bcdl[bcdl$phase==2,2:7], type="both", ic="BIC")
+print(var_p2)
+
+irf.p2 <- irf(var_p2, n.ahead=14, ci=0.95, cumulative=TRUE, impulse=c("dlmkpru", "dlntran"))
+plot(irf.p2)
+irf.p2 <- irf(var_p2, n.ahead=14, ci=0.95, cumulative=TRUE, impulse="dlnaddu", response=c("dltrfee","dlhrate"))
+plot(irf.p2)
+irf.p2 <- irf(var_p2, n.ahead=14, ci=0.95, cumulative=TRUE, impulse="dlatrct", response=c("dltrfee","dlhrate"))
+plot(irf.p2)
+
+var_p3 <- VAR(bcdl[bcdl$phase==3,2:7], type="both", ic="BIC")
+print(var_p3)
+
+irf.p3 <- irf(var_p3, n.ahead=14, ci=0.95, cumulative=TRUE, impulse=c("dlmkpru", "dlntran"))
+plot(irf.p3)
+irf.p3 <- irf(var_p3, n.ahead=14, ci=0.95, cumulative=TRUE, impulse="dlnaddu", response=c("dltrfee","dlhrate"))
+plot(irf.p3)
+irf.p3 <- irf(var_p3, n.ahead=14, ci=0.95, cumulative=TRUE, impulse="dlatrct", response=c("dltrfee","dlhrate"))
+plot(irf.p3)
+```
